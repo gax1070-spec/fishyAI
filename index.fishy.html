@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fishy AI - Stream Edition</title>
+    <style>
+        :root { --deep: #001219; --water: #005f73; --neon: #00f5d4; --coral: #ee9b00; --sidebar: #00222e; }
+        body { background: var(--deep); color: white; font-family: 'Segoe UI', sans-serif; height: 100vh; margin: 0; display: flex; overflow: hidden; }
+        #sidebar { width: 220px; background: var(--sidebar); border-right: 2px solid var(--water); display: flex; flex-direction: column; padding: 15px; }
+        .side-btn { background: #003344; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; text-align: left; margin-bottom: 8px; font-size: 0.9rem; }
+        .new-chat-btn { background: var(--coral); font-weight: bold; text-align: center; margin-bottom: 20px; }
+        #main { flex: 1; display: flex; flex-direction: column; position: relative; }
+        #chat { flex: 1; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth; }
+        .msg { max-width: 80%; padding: 12px 18px; border-radius: 15px; line-height: 1.5; word-wrap: break-word; font-size: 1rem; position: relative; }
+        .user { align-self: flex-end; background: var(--water); border-bottom-right-radius: 2px; }
+        .ai { align-self: flex-start; background: #222; border-left: 4px solid var(--neon); color: var(--neon); border-bottom-left-radius: 2px; }
+        #footer { padding: 20px; background: #001a24; display: flex; gap: 10px; align-items: center; border-top: 2px solid #00222e; }
+        input[type="text"] { flex: 1; padding: 15px; border-radius: 30px; border: none; background: #002b3a; color: white; outline: none; }
+        #sendBtn { background: var(--coral); color: white; border: none; padding: 12px 25px; border-radius: 30px; cursor: pointer; font-weight: bold; min-width: 100px; transition: 0.2s; }
+        #sendBtn.stop { background: #d00000; }
+        #imgPrev { width: 40px; height: 40px; border-radius: 8px; display: none; border: 2px solid var(--neon); object-fit: cover; }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <button class="side-btn new-chat-btn" onclick="location.reload()">+ NEW REEF</button>
+    <div class="side-btn">Current Session</div>
+</div>
+
+<div id="main">
+    <div id="chat" id="chatWindow">
+        <div class="msg ai">🐟 Fishy AI: Blub! Let's get "hooked" on some code!</div>
+    </div>
+
+    <div id="footer">
+        <img id="imgPrev">
+        <button onclick="document.getElementById('fileIn').click()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">🖼️</button>
+        <input type="file" id="fileIn" hidden accept="image/*" onchange="previewImg(event)">
+        <input type="text" id="userInput" placeholder="Ask Fishy AI..." onkeypress="if(event.key==='Enter' && !isThinking) castLine()">
+        <button id="sendBtn" onclick="handleBtn()">SEND</button>
+    </div>
+</div>
+
+<script type="module">
+    import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
+
+    const API_KEY = "AIzaSyDIYzxP6V5iZRLXip9d1ZTy8mMRXWmkL8Q";
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+
+    let isThinking = false;
+    let abortController = null;
+    let heldImageData = null;
+
+    window.previewImg = (e) => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = (f) => {
+            heldImageData = f.target.result; 
+            document.getElementById('imgPrev').src = f.target.result;
+            document.getElementById('imgPrev').style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    };
+
+    window.handleBtn = () => {
+        if (isThinking) {
+            stopStreaming();
+        } else {
+            castLine();
+        }
+    };
+
+    function stopStreaming() {
+        if (abortController) {
+            abortController.abort(); // Actually kills the network connection
+            isThinking = false;
+            updateUI(false);
+        }
+    }
+
+    function updateUI(thinking) {
+        const btn = document.getElementById('sendBtn');
+        isThinking = thinking;
+        if (thinking) {
+            btn.innerText = "STOP";
+            btn.classList.add("stop");
+        } else {
+            btn.innerText = "SEND";
+            btn.classList.remove("stop");
+        }
+    }
+
+    window.castLine = async () => {
+        const input = document.getElementById('userInput');
+        const chat = document.getElementById('chat');
+        const text = input.value.trim();
+
+        if (!text && !heldImageData) return;
+
+        chat.innerHTML += `<div class="msg user">${text}</div>`;
+        input.value = "";
+        updateUI(true);
+        chat.scrollTop = chat.scrollHeight;
+
+        // Create the AI message bubble immediately
+        const aiMsgDiv = document.createElement("div");
+        aiMsgDiv.className = "msg ai";
+        aiMsgDiv.innerHTML = "🐟 ";
+        chat.appendChild(aiMsgDiv);
+
+        abortController = new AbortController();
+
+        try {
+            const systemPrompt = "You are Fishy AI. Answer using fish puns and be a coding expert. ";
+            let parts = [systemPrompt + text];
+            
+            if (heldImageData) {
+                const base64Data = heldImageData.split(',')[1];
+                parts.push({ inlineData: { mimeType: "image/jpeg", data: base64Data } });
+            }
+
+            // Using generateContentStream for the live "typing" effect
+            const result = await model.generateContentStream(parts, { signal: abortController.signal });
+
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                // Append text chunk by chunk
+                aiMsgDiv.innerHTML += chunkText;
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+        } catch (e) {
+            if (e.name === 'AbortError') {
+                // When we stop it, we just add the cut-off mark
+                aiMsgDiv.innerHTML += "- [CUT OFF ✂️]";
+            } else {
+                aiMsgDiv.innerHTML += `<br><span style="color:red">[Error: ${e.message}]</span>`;
+            }
+        } finally {
+            updateUI(false);
+            heldImageData = null;
+            document.getElementById('imgPrev').style.display = 'none';
+        }
+    };
+</script>
+</body>
+</html>
