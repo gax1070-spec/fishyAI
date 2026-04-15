@@ -6,19 +6,27 @@
     <style>
         :root { --deep: #001219; --water: #005f73; --neon: #00f5d4; --coral: #ee9b00; --sidebar: #00222e; }
         body { background: var(--deep); color: white; font-family: 'Segoe UI', sans-serif; height: 100vh; margin: 0; display: flex; overflow: hidden; }
+        
+        /* Sidebar */
         #sidebar { width: 220px; background: var(--sidebar); border-right: 2px solid var(--water); display: flex; flex-direction: column; padding: 15px; }
         .side-btn { background: #003344; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; text-align: left; margin-bottom: 8px; font-size: 0.9rem; }
         .new-chat-btn { background: var(--coral); font-weight: bold; text-align: center; margin-bottom: 20px; }
+        
+        /* Main Window */
         #main { flex: 1; display: flex; flex-direction: column; position: relative; }
         #chat { flex: 1; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth; }
         .msg { max-width: 80%; padding: 12px 18px; border-radius: 15px; line-height: 1.5; word-wrap: break-word; font-size: 1rem; position: relative; }
         .user { align-self: flex-end; background: var(--water); border-bottom-right-radius: 2px; }
         .ai { align-self: flex-start; background: #222; border-left: 4px solid var(--neon); color: var(--neon); border-bottom-left-radius: 2px; }
+        
+        /* Controls */
         #footer { padding: 20px; background: #001a24; display: flex; gap: 10px; align-items: center; border-top: 2px solid #00222e; }
         input[type="text"] { flex: 1; padding: 15px; border-radius: 30px; border: none; background: #002b3a; color: white; outline: none; }
         #sendBtn { background: var(--coral); color: white; border: none; padding: 12px 25px; border-radius: 30px; cursor: pointer; font-weight: bold; min-width: 100px; transition: 0.2s; }
         #sendBtn.stop { background: #d00000; }
+        
         #imgPrev { width: 40px; height: 40px; border-radius: 8px; display: none; border: 2px solid var(--neon); object-fit: cover; }
+        .key-reset { font-size: 10px; color: #555; cursor: pointer; margin-top: auto; text-align: center; }
     </style>
 </head>
 <body>
@@ -26,11 +34,12 @@
 <div id="sidebar">
     <button class="side-btn new-chat-btn" onclick="location.reload()">+ NEW REEF</button>
     <div class="side-btn">Current Session</div>
+    <div class="key-reset" onclick="resetKey()">Reset API Key</div>
 </div>
 
 <div id="main">
-    <div id="chat" id="chatWindow">
-        <div class="msg ai">🐟 Fishy AI: Blub! Let's get "hooked" on some code!</div>
+    <div id="chat">
+        <div class="msg ai">🐟 Fishy AI: Blub! My gills are clear and I'm ready to code. Type a message or drop an image!</div>
     </div>
 
     <div id="footer">
@@ -45,7 +54,19 @@
 <script type="module">
     import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
 
-    const API_KEY = "AIzaSyBHqk4JBBzfs40Iz2NiVswv0Ncy8-77TX4";
+    // --- KEY GUARDIAN LOGIC ---
+    let API_KEY = localStorage.getItem("fishy_key");
+
+    if (!API_KEY) {
+        API_KEY = prompt("Enter your Gemini API Key. (This keeps it safe from GitHub scanners!)");
+        if (API_KEY) localStorage.setItem("fishy_key", API_KEY);
+    }
+
+    window.resetKey = () => {
+        localStorage.removeItem("fishy_key");
+        location.reload();
+    };
+
     const genAI = new GoogleGenerativeAI(API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
@@ -65,16 +86,13 @@
     };
 
     window.handleBtn = () => {
-        if (isThinking) {
-            stopStreaming();
-        } else {
-            castLine();
-        }
+        if (isThinking) stopStreaming();
+        else castLine();
     };
 
     function stopStreaming() {
         if (abortController) {
-            abortController.abort(); // Actually kills the network connection
+            abortController.abort();
             isThinking = false;
             updateUI(false);
         }
@@ -83,13 +101,9 @@
     function updateUI(thinking) {
         const btn = document.getElementById('sendBtn');
         isThinking = thinking;
-        if (thinking) {
-            btn.innerText = "STOP";
-            btn.classList.add("stop");
-        } else {
-            btn.innerText = "SEND";
-            btn.classList.remove("stop");
-        }
+        btn.innerText = thinking ? "STOP" : "SEND";
+        if (thinking) btn.classList.add("stop");
+        else btn.classList.remove("stop");
     }
 
     window.castLine = async () => {
@@ -104,7 +118,6 @@
         updateUI(true);
         chat.scrollTop = chat.scrollHeight;
 
-        // Create the AI message bubble immediately
         const aiMsgDiv = document.createElement("div");
         aiMsgDiv.className = "msg ai";
         aiMsgDiv.innerHTML = "🐟 ";
@@ -121,19 +134,15 @@
                 parts.push({ inlineData: { mimeType: "image/jpeg", data: base64Data } });
             }
 
-            // Using generateContentStream for the live "typing" effect
             const result = await model.generateContentStream(parts, { signal: abortController.signal });
 
             for await (const chunk of result.stream) {
-                const chunkText = chunk.text();
-                // Append text chunk by chunk
-                aiMsgDiv.innerHTML += chunkText;
+                aiMsgDiv.innerHTML += chunk.text();
                 chat.scrollTop = chat.scrollHeight;
             }
 
         } catch (e) {
             if (e.name === 'AbortError') {
-                // When we stop it, we just add the cut-off mark
                 aiMsgDiv.innerHTML += "- [CUT OFF ✂️]";
             } else {
                 aiMsgDiv.innerHTML += `<br><span style="color:red">[Error: ${e.message}]</span>`;
